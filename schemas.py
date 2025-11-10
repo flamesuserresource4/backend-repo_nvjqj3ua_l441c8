@@ -12,9 +12,10 @@ Model name is converted to lowercase for the collection name:
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
+from datetime import date
 
-# Example schemas (replace with your own):
+# Example schemas (you can keep or remove if not needed):
 
 class User(BaseModel):
     """
@@ -38,8 +39,39 @@ class Product(BaseModel):
     category: str = Field(..., description="Product category")
     in_stock: bool = Field(True, description="Whether product is in stock")
 
-# Add your own schemas here:
 # --------------------------------------------------
+# Coinflow app schemas
+# --------------------------------------------------
+
+class Expense(BaseModel):
+    """Expenses collection schema
+    Collection: "expense"
+    """
+    amount: float = Field(..., gt=0, description="Amount spent")
+    currency: str = Field("USD", min_length=3, max_length=3, description="ISO currency code")
+    date: Optional[date] = Field(None, description="Date of expense")
+    merchant: Optional[str] = Field(None, description="Merchant or payee name")
+    note: Optional[str] = Field(None, description="Optional note")
+    category: Optional[str] = Field(None, description="Auto-assigned or user-selected category")
+    account: Optional[str] = Field(None, description="Account name or source")
+    type: Literal["debit", "credit"] = Field("debit", description="Expense type")
+
+class Budget(BaseModel):
+    """Budgets collection schema
+    Collection: "budget"
+    """
+    category: str = Field(..., description="Budget category")
+    amount: float = Field(..., gt=0, description="Monthly budget amount")
+    month: Optional[str] = Field(None, description="YYYY-MM for budget period. Defaults to current month.")
+
+class Goal(BaseModel):
+    """Financial goals collection schema
+    Collection: "goal"
+    """
+    name: str = Field(..., description="Goal name")
+    target_amount: float = Field(..., gt=0, description="Target savings amount")
+    current_amount: float = Field(0, ge=0, description="Current saved amount")
+    deadline: Optional[date] = Field(None, description="Deadline for the goal")
 
 # Note: The Flames database viewer will automatically:
 # 1. Read these schemas from GET /schema endpoint

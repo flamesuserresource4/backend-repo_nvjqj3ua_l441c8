@@ -1,8 +1,14 @@
 import os
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
+from typing import Optional, List, Dict
 
-app = FastAPI()
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from database import db, create_document, get_documents
+
+app = FastAPI(title="Coinflow API", description="Smart Budget and Expense Tracker")
 
 app.add_middleware(
     CORSMiddleware,
@@ -12,17 +18,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class ExpenseIn(BaseModel):
+    amount: float
+    currency: str = "USD"
+    date: Optional[str] = None  # ISO string
+    merchant: Optional[str] = None
+    note: Optional[str] = None
+    category: Optional[str] = None
+    account: Optional[str] = None
+    type: str = "debit"
+
+
+class BudgetIn(BaseModel):
+    category: str
+    amount: float
+    month: Optional[str] = None  # YYYY-MM
+
+
+class GoalIn(BaseModel):
+    name: str
+    target_amount: float
+    current_amount: float = 0
+    deadline: Optional[str] = None  # ISO date
+
+
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+    return {"message": "Coinflow Backend is running"}
 
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from the backend API!"}
 
 @app.get("/test")
 def test_database():
-    """Test endpoint to check if database is available and accessible"""
     response = {
         "backend": "✅ Running",
         "database": "❌ Not Available",
@@ -31,38 +58,106 @@ def test_database():
         "connection_status": "Not Connected",
         "collections": []
     }
-    
+
     try:
-        # Try to import database module
-        from database import db
-        
         if db is not None:
             response["database"] = "✅ Available"
             response["database_url"] = "✅ Configured"
             response["database_name"] = db.name if hasattr(db, 'name') else "✅ Connected"
             response["connection_status"] = "Connected"
-            
-            # Try to list collections to verify connectivity
             try:
                 collections = db.list_collection_names()
-                response["collections"] = collections[:10]  # Show first 10 collections
+                response["collections"] = collections[:10]
                 response["database"] = "✅ Connected & Working"
             except Exception as e:
                 response["database"] = f"⚠️  Connected but Error: {str(e)[:50]}"
         else:
             response["database"] = "⚠️  Available but not initialized"
-            
-    except ImportError:
-        response["database"] = "❌ Database module not found (run enable-database first)"
     except Exception as e:
         response["database"] = f"❌ Error: {str(e)[:50]}"
-    
-    # Check environment variables
-    import os
+
     response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
-    
     return response
+
+
+# -----------------------------
+# Expense Endpoints
+# -----------------------------
+@app.post("/api/expenses")
+def add_expense(expense: ExpenseIn):
+    try:
+        data = expense.model_dump()
+        data["date"] = data.get("date") or datetime.utcnow().isoformat()
+        inserted_id = create_document("expense", data)
+        return {"ok": True, "id": inserted_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/expenses")
+def list_expenses(category: Optional[str] = None, limit: int = Query(50, ge=1, le=500)):
+    try:
+        filter_query: Dict = {"type": "debit"}
+        if category:
+            filter_query["category"] = category
+        docs = get_documents("expense", filter_query, limit=limit)
+        for d in docs:
+            d["_id"] = str(d.get("_id"))
+        return {"ok": True, "items": docs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------
+# Budget Endpoints
+# -----------------------------
+@app.post("/api/budgets")
+def add_budget(budget: BudgetIn):
+    try:
+        data = budget.model_dump()
+        inserted_id = create_document("budget", data)
+        return {"ok": True, "id": inserted_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/budgets")
+def list_budgets(month: Optional[str] = None, limit: int = Query(50, ge=1, le=200)):
+    try:
+        filter_query: Dict = {}
+        if month:
+            filter_query["month"] = month
+        docs = get_documents("budget", filter_query, limit=limit)
+        for d in docs:
+            d["_id"] = str(d.get("_id"))
+        return {"ok": True, "items": docs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------
+# Goals Endpoints
+# -----------------------------
+@app.post("/api/goals")
+def add_goal(goal: GoalIn):
+    try:
+        data = goal.model_dump()
+        inserted_id = create_document("goal", data)
+        return {"ok": True, "id": inserted_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/goals")
+def list_goals(limit: int = Query(50, ge=1, le=200)):
+    try:
+        docs = get_documents("goal", {}, limit=limit)
+        for d in docs:
+            d["_id"] = str(d.get("_id"))
+        return {"ok": True, "items": docs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
